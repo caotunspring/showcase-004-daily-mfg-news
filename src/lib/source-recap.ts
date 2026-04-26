@@ -33,6 +33,26 @@ async function azureOpenAIChat(messages: Array<{ role: string; content: string }
   return (j.choices?.[0]?.message?.content as string) ?? "";
 }
 
+async function azureTranslateToZhHant(texts: string[]): Promise<string[]> {
+  const key = process.env.AZURE_TRANSLATOR_KEY;
+  const region = process.env.AZURE_TRANSLATOR_REGION || "southeastasia";
+  const ep = process.env.AZURE_TRANSLATOR_ENDPOINT || "https://api.cognitive.microsofttranslator.com";
+  if (!key) throw new Error("AZURE_TRANSLATOR_KEY required");
+  const url = `${ep.replace(/\/$/, "")}/translate?api-version=3.0&from=en&to=zh-Hant`;
+  const r = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Ocp-Apim-Subscription-Key": key,
+      "Ocp-Apim-Subscription-Region": region,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(texts.map((t) => ({ text: t }))),
+  });
+  if (!r.ok) throw new Error(`AzureTranslator ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  const j = (await r.json()) as Array<{ translations: Array<{ text: string }> }>;
+  return j.map((entry) => entry.translations[0].text);
+}
+
 // Cheap article-body extractor: strip script/style/nav, keep <p> + <h*> text.
 // Good enough for news sites; precision/recall for arbitrary URLs is the
 // caller's problem (we surface byte_size so the caller can sanity-check).
@@ -114,7 +134,10 @@ export async function recapSource(opts: {
 
   const { title, body } = extractArticleText(html);
 
-  // Run LLM recap + impact in a single call (one prompt, JSON response).
+  // gpt-4o produces English ONLY (recap_en + impact_en). Translator does
+  // en→zh-Hant for the Chinese surface fields, because gpt-4o leaks
+  // Simplified despite "繁體中文" instructions — see
+  // backlog/2026-04-26-zh-hant-strict.md.
   let recapEn: string | null = null;
   let recapZh: string | null = null;
   let impactEn: string | null = null;
@@ -126,25 +149,32 @@ export async function recapSource(opts: {
         {
           role: "system",
           content:
-            "You are a supply-chain analyst at a Taiwan semiconductor-application factory. Read the source article, then return ONLY a JSON object with four keys: recap_en (3-4 sentences English neutral summary), recap_zh (3-4 句繁體中文中性摘要), impact_en (≤2 sentences supply-chain implication for a Taiwan semi factory), impact_zh (≤2 句繁體中文供應鏈影響判讀). No preamble.",
+            "You are a supply-chain analyst at a Taiwan semiconductor-application factory. Read the source article, then return ONLY a JSON object with two keys: recap_en (3-4 sentences English neutral summary) and impact_en (≤2 sentences supply-chain implication for a Taiwan semi factory). English only, no Chinese. No preamble.",
         },
         {
           role: "user",
-          content: `Source URL: ${url}\nTitle: ${title}\n\nArticle body (truncated):\n${body || "(no extractable body)"}\n\nReturn JSON {"recap_en":"...","recap_zh":"...","impact_en":"...","impact_zh":"..."}.`,
+          content: `Source URL: ${url}\nTitle: ${title}\n\nArticle body (truncated):\n${body || "(no extractable body)"}\n\nReturn JSON {"recap_en":"...","impact_en":"..."}.`,
         },
       ],
-      900,
+      700,
     );
     const j = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] || "{}") as {
       recap_en?: string;
-      recap_zh?: string;
       impact_en?: string;
-      impact_zh?: string;
     };
     recapEn = (j.recap_en || "").trim().slice(0, 2000) || null;
-    recapZh = (j.recap_zh || "").trim().slice(0, 2000) || null;
     impactEn = (j.impact_en || "").trim().slice(0, 1000) || null;
-    impactZh = (j.impact_zh || "").trim().slice(0, 1000) || null;
+
+    if (recapEn || impactEn) {
+      try {
+        const texts = [recapEn || "", impactEn || ""];
+        const [zhRecap, zhImpact] = await azureTranslateToZhHant(texts);
+        if (recapEn) recapZh = (zhRecap || "").slice(0, 2000) || null;
+        if (impactEn) impactZh = (zhImpact || "").slice(0, 1000) || null;
+      } catch (err) {
+        llmFailure = `translator: ${(err as Error).message.slice(0, 200)}`;
+      }
+    }
   } catch (err) {
     llmFailure = (err as Error).message.slice(0, 300);
   }

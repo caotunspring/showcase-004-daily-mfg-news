@@ -373,6 +373,10 @@ export async function runDailyPipeline(opts: PipelineOpts): Promise<PipelineResu
     intent: `analyse supply-chain impact for ${finalPicks.length} picks`,
     tool: "azure-openai-gpt4o",
   });
+  // gpt-4o is unreliable at constraining output to zh-Hant — it leaks
+  // Simplified characters ~10-20% of the time. Policy (per
+  // backlog/2026-04-26-zh-hant-strict.md): gpt-4o produces English ONLY;
+  // Azure Translator does en→zh-Hant in a single batch after.
   const impactStart = Date.now();
   const BATCH = 4;
   for (let i = 0; i < finalPicks.length; i += BATCH) {
@@ -382,22 +386,22 @@ export async function runDailyPipeline(opts: PipelineOpts): Promise<PipelineResu
         try {
           const text = await azureOpenAIChat(
             [
-              { role: "system", content: "You are a supply-chain analyst at a Taiwanese semiconductor-application factory (fabs, equipment OEMs, materials). Output ONLY a JSON object with two keys: en (English, ≤2 sentences) and zh (繁體中文, ≤2 句). No preamble." },
+              { role: "system", content: "You are a supply-chain analyst at a Taiwanese semiconductor-application factory (fabs, equipment OEMs, materials). Output ONLY a JSON object with one key: en (English, ≤2 sentences). No preamble, no Chinese." },
               {
                 role: "user",
-                content: `Story:\nTitle: ${p.title}\nSummary: ${String(p.summary).slice(0, 600)}\nURL: ${p.url}\n\nFor a Taiwan semiconductor-application factory, what is the concrete supply-chain implication? Concise: ≤2 sentences each language. Return JSON {"en":"...","zh":"..."}.`,
+                content: `Story:\nTitle: ${p.title}\nSummary: ${String(p.summary).slice(0, 600)}\nURL: ${p.url}\n\nFor a Taiwan semiconductor-application factory, what is the concrete supply-chain implication? ≤2 sentences English. Return JSON {"en":"..."}.`,
               },
             ],
-            300,
+            240,
           );
-          const j = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] || "{}") as { en?: string; zh?: string };
+          const j = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] || "{}") as { en?: string };
           p.impact_en = (j.en || "").trim().slice(0, 600) || null;
-          p.impact_zh = (j.zh || "").trim().slice(0, 600) || null;
+          p.impact_zh = null; // filled by translator pass below
         } catch (err) {
           p.impact_en = null;
           p.impact_zh = null;
           await log("impact", {
-            intent: `impact failed for ${p.title.slice(0, 60)}`,
+            intent: `impact-en failed for ${p.title.slice(0, 60)}`,
             level: "warn",
             decision: (err as Error).message.slice(0, 200),
           });
@@ -405,8 +409,23 @@ export async function runDailyPipeline(opts: PipelineOpts): Promise<PipelineResu
       }),
     );
   }
+  // Batch-translate every produced impact_en → impact_zh in one Translator call.
+  const impactsToTranslate = finalPicks.filter((p) => p.impact_en);
+  if (impactsToTranslate.length) {
+    try {
+      const translated = await azureTranslate(
+        impactsToTranslate.map((p) => p.impact_en!),
+        "zh-Hant",
+      );
+      impactsToTranslate.forEach((p, i) => {
+        p.impact_zh = translated[i].slice(0, 600);
+      });
+    } catch (err) {
+      await log("impact", { intent: "impact-zh translator failed", level: "warn", decision: (err as Error).message.slice(0, 200) });
+    }
+  }
   await log("impact", {
-    intent: `impact done for ${finalPicks.length} picks`,
+    intent: `impact done for ${finalPicks.length} picks (gpt-4o EN + translator zh-Hant)`,
     output: { with_impact: finalPicks.filter((p) => p.impact_zh).length },
     duration_ms: Date.now() - impactStart,
   });
@@ -449,7 +468,8 @@ export async function runDailyPipeline(opts: PipelineOpts): Promise<PipelineResu
     duration_ms: Date.now() - translateStart,
   });
 
-  // 7. DAILY SUMMARY — meta-narrative across picks
+  // 7. DAILY SUMMARY — meta-narrative across picks (gpt-4o EN only,
+  // Translator does zh-Hant — see backlog/2026-04-26-zh-hant-strict.md).
   let dailySummaryEn: string | null = null;
   let dailySummaryZh: string | null = null;
   const summaryStart = Date.now();
@@ -459,19 +479,26 @@ export async function runDailyPipeline(opts: PipelineOpts): Promise<PipelineResu
       .join("\n");
     const text = await azureOpenAIChat(
       [
-        { role: "system", content: "You are a senior supply-chain strategist at a Taiwan semiconductor-application factory. Synthesize today's stories into ONE paragraph (≤4 sentences) per language. Output ONLY a JSON object {\"en\":\"...\",\"zh\":\"...\"}." },
+        { role: "system", content: "You are a senior supply-chain strategist at a Taiwan semiconductor-application factory. Synthesize today's stories into ONE paragraph (≤4 sentences). Output ONLY a JSON object {\"en\":\"...\"}. English only, no Chinese." },
         {
           role: "user",
-          content: `Today's stories with their per-item supply-chain impacts:\n\n${headlines}\n\nGive me the meta-narrative: what's the dominant theme, what should our procurement / capex / customer team watch this week. ≤4 sentences each. Return JSON {"en":"...","zh":"..."}.`,
+          content: `Today's stories with their per-item supply-chain impacts:\n\n${headlines}\n\nGive me the meta-narrative: what's the dominant theme, what should our procurement / capex / customer team watch this week. ≤4 sentences English. Return JSON {"en":"..."}.`,
         },
       ],
-      500,
+      400,
     );
-    const j = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] || "{}") as { en?: string; zh?: string };
+    const j = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] || "{}") as { en?: string };
     dailySummaryEn = (j.en || "").trim().slice(0, 1500) || null;
-    dailySummaryZh = (j.zh || "").trim().slice(0, 1500) || null;
+    if (dailySummaryEn) {
+      try {
+        const [zh] = await azureTranslate([dailySummaryEn], "zh-Hant");
+        dailySummaryZh = zh.slice(0, 1500);
+      } catch (err) {
+        await log("summary", { intent: "summary-zh translator failed", level: "warn", decision: (err as Error).message.slice(0, 200) });
+      }
+    }
     await log("summary", {
-      intent: "daily meta-narrative across picks",
+      intent: "daily meta-narrative across picks (gpt-4o EN + translator zh-Hant)",
       tool: "azure-openai-gpt4o",
       output: { en_chars: dailySummaryEn?.length || 0, zh_chars: dailySummaryZh?.length || 0 },
       duration_ms: Date.now() - summaryStart,
