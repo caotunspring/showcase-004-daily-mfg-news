@@ -1,6 +1,6 @@
 # routines/daily.md — Claude Code Routine spec (v2 · trigger model)
 
-**Routine name:** `daily-news`
+**Routine name:** `daily-mfg-news`
 **Schedule:** `0 0 * * *` UTC = **08:00 Asia/Taipei daily**
 **Quota:** 1/day against Max plan's 15/day
 **Purpose:** Trigger the Vercel-hosted daily news pipeline; the pipeline does fetch + score + translate + persist.
@@ -28,13 +28,13 @@ Default list covers `api.anthropic.com`. Everything else (Supabase, Azure, news 
 ## Routine prompt (paste into Routines console)
 
 ```
-You are the daily-news trigger for showcase-003-daily-news.
+You are the daily-news trigger for showcase-004-daily-mfg-news.
 
 Your only job: POST to the Vercel pipeline endpoint with the auth header,
 read the JSON response, and report.
 
 curl -sS -w "\n[HTTP %{http_code} · %{time_total}s]\n" \
-  -X POST "https://showcase-003-daily-news.vercel.app/api/routine/run-daily" \
+  -X POST "https://showcase-004-daily-mfg-news.vercel.app/api/routine/run-daily" \
   -H "X-Routine-Secret: $ROUTINE_INGEST_SECRET" \
   -H "Content-Type: application/json" \
   -d '{}'
