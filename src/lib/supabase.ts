@@ -1,5 +1,10 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
+// Single source of truth for the multi-tenant discriminator (see migration
+// 0002 in showcase-003-daily-news). Every read filters on this; every write
+// sets it. We share a single Supabase project across showcase-003 and -004.
+export const PROJECT = "showcase-004-daily-mfg-news" as const;
+
 // Public (anon-key) client — safe for SSR and client components.
 // Returns null if env not configured (e.g. during first Vercel deploy before
 // Mark has pasted secrets). Callers should handle null by showing an empty

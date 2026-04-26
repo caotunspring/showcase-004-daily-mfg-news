@@ -12,6 +12,7 @@
 // translate + summary + persist; logs every phase to routine_log_entries.
 
 import { type SupabaseClient } from "@supabase/supabase-js";
+import { PROJECT } from "./supabase";
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -196,6 +197,7 @@ export async function runDailyPipeline(opts: PipelineOpts): Promise<PipelineResu
   async function log(phase: string, fields: { intent?: string; tool?: string; input?: unknown; output?: unknown; decision?: string; duration_ms?: number; level?: LogLevel } = {}) {
     seq += 1;
     const entry = {
+      project: PROJECT,
       run_id: runId,
       sequence_num: seq,
       phase,
@@ -220,9 +222,14 @@ export async function runDailyPipeline(opts: PipelineOpts): Promise<PipelineResu
 
   // 1. INIT — replace-on-rerun (same idempotency contract as 003)
   {
-    const { error: delErr } = await supabase.from("routine_runs").delete().eq("run_id", runId);
+    const { error: delErr } = await supabase
+      .from("routine_runs")
+      .delete()
+      .eq("project", PROJECT)
+      .eq("run_id", runId);
     if (delErr) throw new Error(`routine_runs prior-delete: ${delErr.message}`);
     const { error } = await supabase.from("routine_runs").insert({
+      project: PROJECT,
       run_id: runId,
       source_type: sourceType,
       news_date: newsDate,
@@ -345,6 +352,7 @@ export async function runDailyPipeline(opts: PipelineOpts): Promise<PipelineResu
         items_produced: 0,
         failure_reason: `pipeline_floor_breach (${deduped.length} < ${MIN_PICKS})`,
       })
+      .eq("project", PROJECT)
       .eq("run_id", runId);
     await log("finalize", { intent: "Run finished · status=failed", decision: "items_produced=0, reason=pipeline_floor_breach" });
     return {
@@ -474,6 +482,7 @@ export async function runDailyPipeline(opts: PipelineOpts): Promise<PipelineResu
 
   // 8. PERSIST
   const rows = finalPicks.map((p, i) => ({
+    project: PROJECT,
     run_id: runId,
     news_date: newsDate,
     rank: i + 1,
@@ -488,7 +497,11 @@ export async function runDailyPipeline(opts: PipelineOpts): Promise<PipelineResu
     published_at: p.published_at,
     score: p.score_final != null ? p.score_final.toFixed(3) : null,
   }));
-  await supabase.from("news_items").delete().eq("news_date", newsDate);
+  await supabase
+    .from("news_items")
+    .delete()
+    .eq("project", PROJECT)
+    .eq("news_date", newsDate);
   const { error: insErr } = await supabase.from("news_items").insert(rows);
   if (insErr) throw new Error(`news_items insert: ${insErr.message}`);
   await log("persist", {
@@ -509,6 +522,7 @@ export async function runDailyPipeline(opts: PipelineOpts): Promise<PipelineResu
       daily_summary_en: dailySummaryEn,
       daily_summary_zh: dailySummaryZh,
     })
+    .eq("project", PROJECT)
     .eq("run_id", runId);
   await log("finalize", {
     intent: `Run finished · status=${status}`,

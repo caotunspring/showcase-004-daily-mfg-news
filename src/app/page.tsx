@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { supabasePublic, type NewsItem, type RoutineRun } from "@/lib/supabase";
+import { supabasePublic, PROJECT, type NewsItem, type RoutineRun } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +41,7 @@ export default async function HomePage() {
   const { data: runData } = await supabase
     .from("routine_runs")
     .select("*")
+    .eq("project", PROJECT)
     .order("started_at", { ascending: false })
     .limit(1);
   const latestRun = runData?.[0] as RoutineRun | undefined;
@@ -49,6 +50,7 @@ export default async function HomePage() {
   const { data: itemsData } = await supabase
     .from("news_items")
     .select("*")
+    .eq("project", PROJECT)
     .eq("news_date", newsDate)
     .order("rank", { ascending: true });
   const items = (itemsData ?? []) as NewsItem[];
