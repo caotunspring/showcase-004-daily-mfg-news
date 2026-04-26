@@ -7,7 +7,7 @@
 // Exits 0 on ok=true, 1 otherwise. Prints the JSON response either way.
 
 const SECRET = process.env.ROUTINE_INGEST_SECRET;
-const URL = process.env.TRIGGER_URL || "https://showcase-003-daily-news.vercel.app/api/routine/run-daily";
+const URL = process.env.TRIGGER_URL || "https://showcase-004-daily-mfg-news.vercel.app/api/routine/run-daily";
 
 if (!SECRET) {
   console.error("ROUTINE_INGEST_SECRET not set. Run `npm run env:pull` first.");
