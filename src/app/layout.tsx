@@ -9,7 +9,7 @@ const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"]
 export const metadata: Metadata = {
   title: "Daily Mfg News · 半導體應用工廠供應鏈情報",
   description:
-    "每日 6-12 則影響半導體應用工廠供應鏈的重大新聞,由 Claude Code Routine 在 08:00 Asia/Taipei 自動抓取、評分、分析、翻譯。每則附產業影響判讀,加每日整體判讀。",
+    "每日 6-12 則影響半導體應用工廠供應鏈的重大新聞,由 Claude Code Routine 在每天早上 9 點之前 (Asia/Taipei) 自動抓取、評分、分析、翻譯。每則附產業影響判讀,加每日整體判讀。",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -31,7 +31,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         </header>
         <main className="flex-1">{children}</main>
         <footer className="border-t border-slate-200 py-6 text-center text-base text-slate-600">
-          每天 08:00 Asia/Taipei 由 Claude Code Routine 抓取 ·
+          每天早上 9 點之前 (Asia/Taipei) 由 Claude Code Routine 抓取 ·
           <a href="https://github.com/caotunspring/showcase-004-daily-mfg-news" className="underline ml-2 font-semibold">source code</a>
           · AIA × Claude Code Showcase 004
         </footer>

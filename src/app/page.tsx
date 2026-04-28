@@ -115,7 +115,7 @@ export default async function HomePage() {
       {items.length === 0 ? (
         <div className="border-2 border-dashed border-slate-300 rounded-xl p-16 text-center">
           <p className="text-2xl text-slate-700 font-semibold">No news items yet for {newsDate}.</p>
-          <p className="text-base text-slate-500 mt-3">The next Routine run fires at 08:00 Asia/Taipei.</p>
+          <p className="text-base text-slate-500 mt-3">The next Routine run fires before 09:00 Asia/Taipei.</p>
         </div>
       ) : (
         <div className="space-y-8">
