@@ -26,6 +26,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
               <Link href="/" className="hover:text-slate-900 hover:underline underline-offset-4">Today</Link>
               <Link href="/archive" className="hover:text-slate-900 hover:underline underline-offset-4">Archive</Link>
               <Link href="/recap" className="hover:text-slate-900 hover:underline underline-offset-4">Recap a URL</Link>
+              <a href="https://showcase.aipm.com.tw/" target="_blank" rel="noreferrer" className="hover:text-slate-900 hover:underline underline-offset-4">看板 ↗</a>
             </nav>
           </div>
         </header>
